@@ -1,0 +1,48 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+:root {
+  --bg-void: #05070b;
+  --surface-obsidian: rgba(11, 15, 23, 0.88);
+  --surface-elevated: rgba(16, 22, 34, 0.94);
+  --border-hairline: rgba(255, 255, 255, 0.08);
+  --accent-cyan: #38bdf8;
+  --accent-violet: #a78bfa;
+  --accent-amber: #f59e0b;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-void);
+  font-family: var(--font-sans);
+  overflow: hidden;
+}
+
+/* Custom hairline scrollbars for Metaprompt Studio */
+.obsidian-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.obsidian-scroll::-webkit-scrollbar-track {
+  background: rgba(5, 7, 11, 0.6);
+}
+
+.obsidian-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 3px;
+}
+
+.obsidian-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.4);
+}

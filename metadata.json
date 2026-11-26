@@ -1,0 +1,6 @@
+{
+  "name": "Neural Singularity",
+  "description": "Multi-window 3D spatial VFX engine powered by Three.js WebGPU/TSL compute shaders, raymarched refractive glass, and unified MediaPipe tracking with a TouchDesigner-grade Metaprompt Studio.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

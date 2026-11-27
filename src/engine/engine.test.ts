@@ -116,18 +116,21 @@ test('presets and metaprompt builder toggle sections cleanly', () => {
   assert.equal(tuning.dispersion, cryo.dispersion);
 
   const fullPrompt = buildMasterMetaprompt(DEFAULT_METAPROMPT_MODULES);
-  assert.ok(fullPrompt.includes('GPGPU 3D CURL-NOISE'));
-  assert.ok(fullPrompt.includes('RAYMARCHED LIQUID-GLASS SDF'));
+  assert.ok(fullPrompt.includes('GPGPU CURL-NOISE, LORENTZ DIPOLE'));
+  assert.ok(fullPrompt.includes('VOLUMETRIC CSG SDF SINGULARITY'));
+  assert.ok(fullPrompt.includes('3D VOLUMETRIC STAGE & SPHERICAL ORBITAL CAMERA RIG'));
   assert.ok(fullPrompt.includes('MEDIAPIPE VISION PIPELINE'));
 
   const minimalPrompt = buildMasterMetaprompt({
     gpgpuAdvection: true,
     sdfRaymarching: false,
+    volumetricStage: false,
     springRig: false,
     postProcessing: false,
     multiWindowSync: false,
     mediaPipeVision: false,
   });
-  assert.ok(minimalPrompt.includes('GPGPU 3D CURL-NOISE'));
-  assert.ok(!minimalPrompt.includes('RAYMARCHED LIQUID-GLASS SDF'));
+  assert.ok(minimalPrompt.includes('GPGPU CURL-NOISE, LORENTZ DIPOLE'));
+  assert.ok(!minimalPrompt.includes('VOLUMETRIC CSG SDF SINGULARITY'));
+  assert.ok(!minimalPrompt.includes('3D VOLUMETRIC STAGE'));
 });

@@ -62,6 +62,7 @@ import type {
 } from './types';
 
 export const PARTICLE_COUNT = 65536;
+const DEEP_STAR_COUNT = 2400;
 const MAX_PEER_FILAMENTS = 6;
 
 // Pre-allocated zero-GC scratch objects
@@ -72,7 +73,7 @@ const _quatA = new THREE.Quaternion();
 const _upAxis = new THREE.Vector3(0, 1, 0);
 const _raycaster = new THREE.Raycaster();
 const _pointerNdc = new THREE.Vector2();
-const _planeZ0 = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
+const _interactionPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 const _targetCoreColor = new THREE.Color();
 const _targetMidColor = new THREE.Color();
 const _targetRimColor = new THREE.Color();
@@ -115,6 +116,11 @@ export class SingularityEngine {
   private singularityGroup!: THREE.Group;
   private gyroOuterRing!: THREE.Mesh;
   private gyroInnerRing!: THREE.Mesh;
+  private gyroPolarRing!: THREE.Mesh;
+  private geodesicCage!: THREE.LineSegments;
+  private geodesicMat!: THREE.LineBasicMaterial;
+  private horizonRing!: THREE.Mesh;
+  private deepStars!: THREE.Points;
   private shockwaveRing!: THREE.Mesh;
   private filamentMeshes: THREE.Mesh[] = [];
 
@@ -126,9 +132,12 @@ export class SingularityEngine {
   private frameCounter = 0;
   private currentFps = 60;
 
-  // Second-order spring kinematics
+  // Second-order spring kinematics & spherical orbital camera rig
   private offsetSpring = createSpringVec3(0, 0, 0);
   private parallaxSpring = createSpringVec3(0, 0, 0);
+  private orbitYawSpring = createSpringScalar(0);
+  private orbitPitchSpring = createSpringScalar(0.08);
+  private orbitRadiusSpring = createSpringScalar(8.8);
   private fovSpring = createSpringScalar(50);
   private pinchSpring = createSpringScalar(0);
   private trauma = 0;
@@ -245,6 +254,7 @@ export class SingularityEngine {
     this.setupLightingAndEnvironment();
     this.setupGPGPUParticles();
     this.setupSingularityAssembly();
+    this.setupVolumetricStage();
     this.setupPeerFilaments();
     this.setupPostProcessing();
 
@@ -340,11 +350,20 @@ export class SingularityEngine {
       const dist = max(length(toCenter), 0.12);
       const dir = toCenter.div(dist);
 
-      // 1. 3D Curl-noise turbulence
+      // 1. Divergence-free 3D Curl-Noise turbulence
       const curl = evalCurlField(toCenter, time, this.uCurlFreq).mul(this.uTurbulence);
 
-      // 2. Tangential orbital swirl + harmonic containment shell
-      const swirl = cross(vec3(0.0, 1.0, 0.0), dir).mul(1.25);
+      // 2. Precessing Magnetic Dipole Lorentz Torque + Keplerian Differential Shear
+      const dipoleAxis = normalize(
+        vec3(sin(time.mul(0.22)).mul(0.28), float(1.0), cos(time.mul(0.17)).mul(0.28))
+      );
+      const rCubed = max(dist.mul(dist).mul(dist), 0.08);
+      const mDotR = dot(dipoleAxis, dir);
+      const bField = dir.mul(mDotR.mul(3.0)).sub(dipoleAxis).div(rCubed);
+      const lorentz = cross(vel, bField).mul(1.45);
+
+      const keplerSpeed = float(1.38).div(pow(max(dist, 0.35), 0.45));
+      const swirl = cross(dipoleAxis, dir).mul(keplerSpeed);
       const targetRadius = seed.x.mul(float(1.0).sub(this.uPinchCompress.mul(0.42)));
       const radialSpring = dir.mul(targetRadius.sub(dist)).mul(1.65);
 
@@ -360,8 +379,8 @@ export class SingularityEngine {
       const modeForce = vec3(0.0).toVar();
       If(this.uForceMode.lessThan(0.5), () => {
         // Mode 0: Mouse Gravity Attractor + orbital lift
-        const tang = cross(vec3(0.0, 0.0, 1.0), forceDir);
-        modeForce.assign(forceDir.mul(2.8).add(tang.mul(1.3)).mul(falloff).mul(this.uForceStrength));
+        const tang = cross(dipoleAxis, forceDir);
+        modeForce.assign(forceDir.mul(2.8).add(tang.mul(1.35)).mul(falloff).mul(this.uForceStrength));
       })
         .ElseIf(this.uForceMode.lessThan(1.5), () => {
           // Mode 1: FaceMesh Wind / Blow cone
@@ -374,7 +393,7 @@ export class SingularityEngine {
         })
         .ElseIf(this.uForceMode.lessThan(3.5), () => {
           // Mode 3: Hand PALM -> wide curl vortex
-          const vortex = cross(vec3(0.0, 0.0, 1.0), forceDir);
+          const vortex = cross(dipoleAxis, forceDir);
           modeForce.assign(vortex.mul(5.8).add(forceDir.mul(0.9)).mul(falloff).mul(this.uForceStrength));
         })
         .Else(() => {
@@ -388,12 +407,12 @@ export class SingularityEngine {
       const shockBand = exp(pow(shockDist.sub(this.uShockRadius), 2.0).mul(-2.2));
       const shockForce = toShock.div(shockDist).mul(shockBand).mul(this.uShockEnergy).mul(14.0);
 
-      // Integrate velocity with viscous damping
-      const totalAccel = curl.add(swirl).add(radialSpring).add(inertia).add(modeForce).add(shockForce);
+      // Symplectic Semi-Implicit Euler integration with viscous damping
+      const totalAccel = curl.add(swirl).add(lorentz).add(radialSpring).add(inertia).add(modeForce).add(shockForce);
       vel.addAssign(totalAccel.mul(dt));
       vel.mulAssign(float(1.0).sub(clamp(dt.mul(1.85), 0.0, 0.25)));
 
-      // Clamp speed for stability
+      // Clamp speed for numerical stability
       const speed = length(vel);
       If(speed.greaterThan(11.0), () => {
         vel.assign(vel.div(speed).mul(11.0));
@@ -483,20 +502,34 @@ export class SingularityEngine {
         .mul(this.uShockEnergy)
         .mul(0.05);
 
-      const core = length(p).sub(float(0.86).mul(breathe)).add(warp).add(ripple);
+      const core = length(p).sub(float(0.82).mul(breathe)).add(warp).add(ripple);
+
+      // Undulating precessing equatorial accretion torus smooth-unioned with core
+      const tiltA = t.mul(0.38);
+      const cA = cos(tiltA);
+      const sA = sin(tiltA);
+      const tp = vec3(
+        p.x.mul(cA).sub(p.z.mul(sA)),
+        p.y.mul(0.91).add(p.z.mul(0.41)),
+        p.x.mul(sA).add(p.z.mul(cA))
+      );
+      const torWave = sin(tp.x.mul(2.8).add(t.mul(1.7))).mul(cos(tp.z.mul(2.8))).mul(0.025);
+      const qTor = vec2(length(vec2(tp.x, tp.z)).sub(1.14), tp.y);
+      const torusD = length(qTor).sub(float(0.105).add(torWave));
 
       // Three smooth-unioned orbiting satellite droplets
-      const orb1Pos = vec3(cos(t.mul(1.15)).mul(1.18), sin(t.mul(0.9)).mul(0.45), sin(t.mul(1.15)).mul(1.18));
-      const orb2Pos = vec3(sin(t.mul(-0.95)).mul(1.05), cos(t.mul(1.25)).mul(0.82), cos(t.mul(-0.95)).mul(0.92));
-      const orb3Pos = vec3(cos(t.mul(0.7).add(2.1)).mul(0.95), sin(t.mul(-1.1).add(1.0)).mul(0.95), sin(t.mul(0.7)).mul(0.85));
+      const orb1Pos = vec3(cos(t.mul(1.15)).mul(1.22), sin(t.mul(0.9)).mul(0.52), sin(t.mul(1.15)).mul(1.22));
+      const orb2Pos = vec3(sin(t.mul(-0.95)).mul(1.08), cos(t.mul(1.25)).mul(0.84), cos(t.mul(-0.95)).mul(0.94));
+      const orb3Pos = vec3(cos(t.mul(0.7).add(2.1)).mul(0.98), sin(t.mul(-1.1).add(1.0)).mul(0.96), sin(t.mul(0.7)).mul(0.88));
 
-      const d1 = length(p.sub(orb1Pos)).sub(0.32);
-      const d2 = length(p.sub(orb2Pos)).sub(0.27);
-      const d3 = length(p.sub(orb3Pos)).sub(0.24);
+      const d1 = length(p.sub(orb1Pos)).sub(0.31);
+      const d2 = length(p.sub(orb2Pos)).sub(0.26);
+      const d3 = length(p.sub(orb3Pos)).sub(0.23);
 
-      const m1 = smin(core, d1, float(0.42));
-      const m2 = smin(m1, d2, float(0.38));
-      return smin(m2, d3, float(0.35));
+      const m0 = smin(core, torusD, float(0.28));
+      const m1 = smin(m0, d1, float(0.40));
+      const m2 = smin(m1, d2, float(0.36));
+      return smin(m2, d3, float(0.33));
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -519,8 +552,8 @@ export class SingularityEngine {
       const phase = gyroid(pos.mul(2.3).add(dir.mul(1.9)).add(time.mul(0.45)));
       const causticVein = pow(clamp(float(1.0).sub(abs(phase)), 0.0, 1.0), 3.4);
       const skyElev = clamp(dir.y.mul(0.5).add(0.5), 0.0, 1.0);
-      const deepBody = this.uCoreColor.mul(0.28);
-      const veinGlow = mix(this.uMidColor, this.uRimColor, pow(skyElev, 1.4)).mul(causticVein.mul(1.35));
+      const deepBody = this.uCoreColor.mul(0.26);
+      const veinGlow = mix(this.uMidColor, this.uRimColor, pow(skyElev, 1.4)).mul(causticVein.mul(1.38));
       return deepBody.add(veinGlow);
     });
 
@@ -567,7 +600,12 @@ export class SingularityEngine {
       const specR = sampleCausticSpectrum(rRay, pHit).x;
       const specG = sampleCausticSpectrum(gRay, pHit).y;
       const specB = sampleCausticSpectrum(bRay, pHit).z;
-      const refracted = vec3(specR, specG, specB).mul(0.92);
+
+      // Beer-Lambert internal chord optical absorption
+      const dInner = mapSDF(pHit.add(gRay.mul(0.42)));
+      const opticalDepth = clamp(dInner.negate().mul(2.2), 0.08, 1.45);
+      const transmittance = exp(opticalDepth.negate().mul(1.35));
+      const refracted = mix(this.uCoreColor.mul(0.14), vec3(specR, specG, specB), transmittance).mul(0.95);
 
       // Crisp Studio Softbox Specular Highlights
       const refl = reflect(rd, n);
@@ -592,7 +630,7 @@ export class SingularityEngine {
     coreProxy.renderOrder = 2;
     this.singularityGroup.add(coreProxy);
 
-    // 2. Composite Procedural Astrolabe Rings (varied roughness & metalness)
+    // 2. 3-Axis Composite Metallic Astrolabe Rings
     const outerRingGeo = new THREE.TorusGeometry(1.78, 0.014, 12, 96);
     const outerRingMat = new THREE.MeshStandardNodeMaterial();
     outerRingMat.colorNode = color('#162033');
@@ -613,6 +651,16 @@ export class SingularityEngine {
     this.gyroInnerRing.rotation.set(-Math.PI * 0.28, Math.PI * 0.42, 0);
     this.singularityGroup.add(this.gyroInnerRing);
 
+    const polarRingGeo = new THREE.TorusGeometry(1.6, 0.008, 10, 88);
+    const polarRingMat = new THREE.MeshStandardNodeMaterial();
+    polarRingMat.colorNode = color('#1B2436');
+    polarRingMat.emissiveNode = this.uPeakColor.mul(0.22);
+    polarRingMat.metalnessNode = float(0.84);
+    polarRingMat.roughnessNode = float(0.28);
+    this.gyroPolarRing = new THREE.Mesh(polarRingGeo, polarRingMat);
+    this.gyroPolarRing.rotation.set(Math.PI * 0.48, -Math.PI * 0.22, Math.PI * 0.15);
+    this.singularityGroup.add(this.gyroPolarRing);
+
     // 3. Expanding Click / Spread Shockwave Ring
     const shockGeo = new THREE.TorusGeometry(1.0, 0.034, 12, 84);
     const shockMat = new THREE.MeshBasicNodeMaterial();
@@ -624,6 +672,93 @@ export class SingularityEngine {
     this.shockwaveRing = new THREE.Mesh(shockGeo, shockMat);
     this.shockwaveRing.visible = false;
     this.scene.add(this.shockwaveRing);
+  }
+
+  private setupVolumetricStage() {
+    // 1. Deep 3D Parallax Starfield (r = 16 .. 46) for strong depth perception on orbit
+    const starPositions = new Float32Array(DEEP_STAR_COUNT * 3);
+    const starColors = new Float32Array(DEEP_STAR_COUNT * 3);
+    const cCyan = new THREE.Color('#7DD3FC');
+    const cViolet = new THREE.Color('#C4B5FD');
+    const cSlate = new THREE.Color('#E2E8F0');
+    const tmpCol = new THREE.Color();
+
+    for (let i = 0; i < DEEP_STAR_COUNT; i++) {
+      // Deterministic golden-ratio sphere distribution + shell depth
+      const u = ((i * 0.61803398875) % 1);
+      const v = ((i * 0.38196601125 + 0.17) % 1);
+      const theta = u * Math.PI * 2;
+      const phi = Math.acos(2 * v - 1);
+      const r = 16 + ((i * 7919) % 3000) / 100;
+
+      const sinPhi = Math.sin(phi);
+      starPositions[i * 3] = sinPhi * Math.cos(theta) * r;
+      starPositions[i * 3 + 1] = Math.cos(phi) * r;
+      starPositions[i * 3 + 2] = sinPhi * Math.sin(theta) * r;
+
+      const mod = i % 5;
+      tmpCol.copy(mod === 0 ? cCyan : mod === 1 ? cViolet : cSlate);
+      const lum = 0.45 + ((i * 3571) % 100) / 180;
+      starColors[i * 3] = tmpCol.r * lum;
+      starColors[i * 3 + 1] = tmpCol.g * lum;
+      starColors[i * 3 + 2] = tmpCol.b * lum;
+    }
+
+    const starGeo = new THREE.BufferGeometry();
+    starGeo.setAttribute('position', new THREE.BufferAttribute(starPositions, 3));
+    starGeo.setAttribute('color', new THREE.BufferAttribute(starColors, 3));
+    const starMat = new THREE.PointsMaterial({
+      size: 1.8,
+      sizeAttenuation: false,
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+    });
+    this.deepStars = new THREE.Points(starGeo, starMat);
+    this.scene.add(this.deepStars);
+
+    // 2. Geodesic Spatial Containment Cage around singularity
+    const icoEdges = new THREE.EdgesGeometry(new THREE.IcosahedronGeometry(3.35, 1));
+    this.geodesicMat = new THREE.LineBasicMaterial({
+      color: '#38BDF8',
+      transparent: true,
+      opacity: 0.11,
+      depthWrite: false,
+    });
+    this.geodesicCage = new THREE.LineSegments(icoEdges, this.geodesicMat);
+    this.singularityGroup.add(this.geodesicCage);
+
+    // 3. Calibrated Equatorial Spatial Reference Ring
+    const horizonGeo = new THREE.TorusGeometry(4.1, 0.008, 8, 128);
+    const horizonMat = new THREE.MeshBasicNodeMaterial();
+    horizonMat.colorNode = this.uMidColor;
+    horizonMat.opacityNode = float(0.16);
+    horizonMat.transparent = true;
+    horizonMat.depthWrite = false;
+    horizonMat.blending = THREE.AdditiveBlending;
+    this.horizonRing = new THREE.Mesh(horizonGeo, horizonMat);
+    this.horizonRing.rotation.set(Math.PI * 0.48, 0.12, 0);
+    this.singularityGroup.add(this.horizonRing);
+
+    // 4. Soft Volumetric Atmospheric Corona Shell (fades smoothly to 0 at silhouette)
+    const coronaGeo = new THREE.SphereGeometry(2.35, 32, 24);
+    const coronaMat = new THREE.MeshBasicNodeMaterial();
+    coronaMat.colorNode = mix(this.uMidColor, this.uRimColor, 0.45).mul(0.85);
+    coronaMat.opacityNode = Fn(() => {
+      const viewDir = normalize(cameraPosition.sub(positionWorld));
+      const surfNorm = normalize(positionWorld.sub(this.uSingularityCenter));
+      const facing = clamp(abs(dot(viewDir, surfNorm)), 0.0, 1.0);
+      const softHalo = pow(facing, 2.8);
+      return softHalo.mul(float(0.18).add(this.uShockEnergy.mul(0.18)));
+    })();
+    coronaMat.side = THREE.BackSide;
+    coronaMat.transparent = true;
+    coronaMat.depthWrite = false;
+    coronaMat.blending = THREE.AdditiveBlending;
+    const coronaMesh = new THREE.Mesh(coronaGeo, coronaMat);
+    coronaMesh.renderOrder = 1;
+    this.singularityGroup.add(coronaMesh);
   }
 
   private setupPeerFilaments() {
@@ -748,6 +883,29 @@ export class SingularityEngine {
     this.pointerY = normY;
   }
 
+  public orbitBy(deltaYaw: number, deltaPitch: number) {
+    this.orbitYawSpring.target += deltaYaw;
+    this.orbitPitchSpring.target = THREE.MathUtils.clamp(
+      this.orbitPitchSpring.target + deltaPitch,
+      -1.22,
+      1.22
+    );
+  }
+
+  public dollyBy(deltaRadius: number) {
+    this.orbitRadiusSpring.target = THREE.MathUtils.clamp(
+      this.orbitRadiusSpring.target + deltaRadius,
+      4.6,
+      16.5
+    );
+  }
+
+  public resetCamera() {
+    this.orbitYawSpring.target = 0;
+    this.orbitPitchSpring.target = 0.08;
+    this.orbitRadiusSpring.target = 8.8;
+  }
+
   public setInteractionInput(
     mode: InteractionMode,
     blowStrength: number,
@@ -773,12 +931,15 @@ export class SingularityEngine {
     this.trauma = Math.min(1.0, this.trauma + 0.55 * energy);
     this.fovSpring.target = 54.0;
 
-    if (this.camera) {
+    if (this.camera && this.singularityGroup) {
+      this.camera.getWorldDirection(_vecC).negate();
+      _interactionPlane.setFromNormalAndCoplanarPoint(_vecC, this.singularityGroup.position);
       _pointerNdc.set(normX, normY);
       _raycaster.setFromCamera(_pointerNdc, this.camera);
-      _raycaster.ray.intersectPlane(_planeZ0, _vecA);
+      _raycaster.ray.intersectPlane(_interactionPlane, _vecA);
       this.uShockOrigin.value.copy(_vecA);
       this.shockwaveRing.position.copy(_vecA);
+      this.shockwaveRing.quaternion.copy(this.camera.quaternion);
     }
   }
 
@@ -804,7 +965,7 @@ export class SingularityEngine {
       0
     );
 
-    // 2. Step second-order springs
+    // 2. Step second-order CHOP springs
     this.offsetSpring.tx = this.targetOffsetX;
     this.offsetSpring.ty = this.targetOffsetY;
     stepSpringVec3(this.offsetSpring, dt, { stiffness: 95, damping: 14 });
@@ -812,6 +973,10 @@ export class SingularityEngine {
     this.parallaxSpring.tx = this.pointerX * 0.52;
     this.parallaxSpring.ty = this.pointerY * 0.36;
     stepSpringVec3(this.parallaxSpring, dt, { stiffness: 70, damping: 13 });
+
+    stepSpringScalar(this.orbitYawSpring, dt, { stiffness: 75, damping: 14 });
+    stepSpringScalar(this.orbitPitchSpring, dt, { stiffness: 75, damping: 14 });
+    stepSpringScalar(this.orbitRadiusSpring, dt, { stiffness: 85, damping: 15 });
 
     this.fovSpring.target = 50 + (this.handGesture === 'SPREAD' ? 4.5 : this.blowStrength * 3.0);
     stepSpringScalar(this.fovSpring, dt, { stiffness: 80, damping: 14 });
@@ -822,7 +987,7 @@ export class SingularityEngine {
 
     this.trauma = decayTrauma(this.trauma, 1.8, dt);
 
-    // 3. Apply singularity world position & astrolabe rotation
+    // 3. Apply singularity world position, astrolabe rings & volumetric stage
     this.uSingularityCenter.value.set(this.offsetSpring.x, this.offsetSpring.y, 0);
     this.singularityGroup.position.copy(this.uSingularityCenter.value);
 
@@ -831,28 +996,52 @@ export class SingularityEngine {
     this.gyroOuterRing.rotation.x += dt * 0.09;
     this.gyroInnerRing.rotation.y -= dt * 0.31 * spinBoost;
     this.gyroInnerRing.rotation.z -= dt * 0.12;
+    this.gyroPolarRing.rotation.x += dt * 0.19 * spinBoost;
+    this.gyroPolarRing.rotation.y += dt * 0.15;
 
-    // 4. Camera Parallax + Trauma Shake + DOF Focus Tracking
+    this.geodesicCage.rotation.y += dt * 0.055;
+    this.geodesicCage.rotation.x -= dt * 0.032;
+    this.geodesicMat.color.copy(this.uMidColor.value);
+    this.geodesicMat.opacity = 0.09 + this.activeShockwaveEnergy * 0.14 + this.pinchSpring.value * 0.1;
+    this.horizonRing.rotation.z -= dt * 0.08;
+    this.deepStars.rotation.y += dt * 0.006;
+
+    // 4. Spherical Orbital Camera Rig + Parallax + Trauma Shake + DOF Focus
     const shake = this.trauma * this.trauma;
     const shakeX = Math.sin(now * 0.043) * shake * 0.12;
     const shakeY = Math.cos(now * 0.057) * shake * 0.1;
 
-    this.camera.position.set(
-      this.parallaxSpring.x + shakeX,
-      0.22 + this.parallaxSpring.y + shakeY,
-      8.8
+    const effYaw = this.orbitYawSpring.value + this.parallaxSpring.x * 0.16;
+    const effPitch = THREE.MathUtils.clamp(
+      this.orbitPitchSpring.value + this.parallaxSpring.y * 0.12,
+      -1.24,
+      1.24
     );
-    this.camera.lookAt(this.offsetSpring.x * 0.35, this.offsetSpring.y * 0.35, 0);
+    const radius = this.orbitRadiusSpring.value;
+    const cosPitch = Math.cos(effPitch);
+
+    const lookX = this.offsetSpring.x * 0.35;
+    const lookY = this.offsetSpring.y * 0.35;
+
+    this.camera.position.set(
+      lookX + Math.sin(effYaw) * cosPitch * radius + shakeX,
+      lookY + Math.sin(effPitch) * radius + shakeY,
+      Math.cos(effYaw) * cosPitch * radius
+    );
+    this.camera.lookAt(lookX, lookY, 0);
+
     if (Math.abs(this.camera.fov - this.fovSpring.value) > 0.01) {
       this.camera.fov = this.fovSpring.value;
       this.camera.updateProjectionMatrix();
     }
     this.uDofFocusDist.value = this.camera.position.distanceTo(this.singularityGroup.position);
 
-    // 5. Update Interactive Force Uniforms
+    // 5. Update Interactive Force Uniforms on camera-aligned interaction plane
+    this.camera.getWorldDirection(_vecC).negate();
+    _interactionPlane.setFromNormalAndCoplanarPoint(_vecC, this.singularityGroup.position);
     _pointerNdc.set(this.pointerX, this.pointerY);
     _raycaster.setFromCamera(_pointerNdc, this.camera);
-    _raycaster.ray.intersectPlane(_planeZ0, _vecB);
+    _raycaster.ray.intersectPlane(_interactionPlane, _vecB);
     this.uForceOrigin.value.copy(_vecB);
 
     if (this.interactionMode === 'GRAVITY') {
@@ -995,6 +1184,7 @@ export class SingularityEngine {
       nodeCount: this.nodeCount,
       fps: this.currentFps,
       isSoftwareGl: this.isSoftwareGl,
+      cameraDistance: Number(this.orbitRadiusSpring.value.toFixed(1)),
     });
   }
 
@@ -1022,7 +1212,7 @@ export class SingularityEngine {
     }
     this.pmremGenerator?.dispose();
     this.scene?.traverse((obj) => {
-      if (obj instanceof THREE.Mesh || obj instanceof THREE.Sprite) {
+      if (obj instanceof THREE.Mesh || obj instanceof THREE.Sprite || obj instanceof THREE.Points || obj instanceof THREE.LineSegments) {
         obj.geometry?.dispose();
         if (Array.isArray(obj.material)) {
           obj.material.forEach((m) => m.dispose());

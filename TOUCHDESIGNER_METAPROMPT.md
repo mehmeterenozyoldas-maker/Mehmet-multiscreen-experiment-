@@ -1,68 +1,58 @@
-# Neural Singularity — TouchDesigner-Grade Web3D Master Metaprompt
+# Neural Singularity — Computational 3D TouchDesigner-Grade Master Metaprompt
 
-Use this standalone specification (or customize it live inside the in-app **Metaprompt Studio**) to generate or extend real-time, TouchDesigner-caliber 3D spatial VFX engines on the web using Three.js WebGPU + TSL.
+Use this standalone blueprint (or customize modules live inside the in-app **Metaprompt Studio**) to generate or extend real-time, TouchDesigner-caliber computational 3D spatial VFX engines on the web using Three.js WebGPU + TSL.
 
 ---
 
-## 1. Role & Rendering Constitution
-Act as a Principal Graphics Engineer and TouchDesigner Technical Director. Build a real-time, interactive 3D spatial VFX engine in TypeScript + React + Three.js (`three/webgpu` & `three/tsl`) using `THREE.WebGPURenderer` with automatic `WebGL2` backend fallback.
+## 1. Role, Mathematical Constitution & TouchDesigner Parity
+Act as a Principal Computational Graphics Engineer and TouchDesigner Technical Director. Build a real-time, deeply 3D, physically reactive spatial VFX simulation in TypeScript + React + Three.js (`three/webgpu` & `three/tsl`) targeting `THREE.WebGPURenderer` with automatic `WebGL2` Transform Feedback fallback.
 
-### TouchDesigner Operator Parity
-- **POP / Compute TOP** -> `instancedArray` GPU storage buffers + `Fn().compute(count)` shaders
-- **GLSL MAT / Raymarch TOP** -> TSL node graphs (`MeshBasicNodeMaterial`, `MeshStandardNodeMaterial`)
-- **CHOP Spring / Lag** -> Frame-rate independent second-order spring kinematics (`stiffness`, `damping`)
+### Operator Parity
+- **POP / Compute TOP** -> `instancedArray` GPU storage buffers + `Fn().compute(N)` symplectic integrators
+- **Raymarch GLSL TOP** -> Analytical CSG Signed Distance Fields + Beer-Lambert optical ray transport in TSL node materials
+- **SOP / Geo COMP + Camera COMP** -> Deep 3D parallax starfield, geodesic spatial containment cage, Fresnel corona shell, and spring-damped spherical orbital camera rig
+- **CHOP Spring / Lag** -> Sub-stepped second-order harmonic oscillators (`d²x/dt² = k(x_target - x) - c·dx/dt`)
 - **TOP Post Compositor** -> `THREE.RenderPipeline` (`pass`, `bloom`, `dof`, `gaussianBlur`, `chromaticAberration`)
 
-### Performance & Rendering Guardrails
-- Zero Garbage Collection inside the render loop: pre-allocate `Vector3`, `Quaternion`, `Color`, `Raycaster`, and `Plane` instances at module scope.
-- Detect software WebGL (`SwiftShader`, `llvmpipe`, `softpipe`) via `WEBGL_debug_renderer_info` to skip multi-pass `RenderPipeline` and pace frames via `afterDraw()` without altering scene geometry or counts.
-- Never apply CSS `backdrop-filter` over the live GPU canvas; use solid/translucent obsidian surfaces (`rgba(11, 15, 23, 0.88)`) with `1px` hairline borders (`rgba(255, 255, 255, 0.08)`).
+### Performance & Numerical Guardrails
+- **Zero GC inside `requestAnimationFrame`**: Pre-allocate `Vector3`, `Vector2`, `Quaternion`, `Color`, `Raycaster`, and `Plane` instances at module scope.
+- **Software-GL Adaptation**: Detect `SwiftShader` / `llvmpipe` via `WEBGL_debug_renderer_info` to bypass multi-pass `RenderPipeline` and pace frames via `afterDraw()` without altering particle count or 3D scene topology.
+- **No CSS `backdrop-filter` over Live Canvases**: Use obsidian surfaces (`rgba(11, 15, 23, 0.90)`) with `1px` hairline borders (`rgba(255, 255, 255, 0.08)`).
 
 ---
 
-## 2. GPGPU 3D Curl-Noise Particle Advection
-- Allocate 65,536 particles in GPU storage buffers (`positions`, `velocities`, `seeds`) via `instancedArray(65536, 'vec3')`.
-- Seed particles across nested spherical accretion shells and orbital ribbons in `computeInit`.
-- In `computeAdvect` (invoked synchronously after `await renderer.init()`):
-  - Evaluate divergence-free 3D gyroid curl turbulence scaled by `curlFrequency` and `turbulence`.
-  - Apply tangential orbital swirl around the local singularity centroid plus radial harmonic containment.
-  - Inject desktop window-drag inertia (`uWindowInertia`) so moving browser windows physically sloshes the particle field.
-  - Apply mode-dependent force wells (Mouse Gravity, FaceMesh Wind Cone, Hand Pinch / Palm Vortex / Two-Hand Spread) and expanding spherical shockwave impulses.
-- Render particles with `THREE.Sprite` + `THREE.PointsNodeMaterial` (`count = 65536`) so particle sizing (`sizeNode`), velocity-mapped chromatic ramps, and soft circular falloff render consistently across both WebGPU and WebGL2.
+## 2. GPGPU Curl-Noise, Lorentz Dipole & Keplerian Solver (`POP / Compute TOP`)
+Allocate `65,536` particles across GPU `vec3` storage buffers (`positions`, `velocities`, `seeds`) via `instancedArray(65536, 'vec3')`.
+
+1. **Multi-Shell Seeding (`computeInit`)**: Distribute particles deterministically across nested spherical accretion halos (`r ∈ [1.55, 2.65]`), curl ribbons (`r ∈ [2.5, 5.1]`), and outer volumetric shells (`r ∈ [5.1, 8.9]`).
+2. **Force-Field Superposition (`computeAdvect`, `Δt ≤ 0.05s`)**:
+   - **Divergence-Free 3D Curl**: Evaluate `u_curl(p) = ∇ × Ψ(p, t)` via continuous 3D gyroid potential cross-derivatives scaled by `uCurlFreq` and `uTurbulence`.
+   - **Lorentz Magnetic Dipole Torque**: Model a precessing dipole axis `m(t)` and dipole magnetic field `B(r) = (3·dot(m, r̂)·r̂ - m) / max(|r|³, 0.04)`, injecting `F_lorentz = q · (v × B(r))` so particles trace authentic 3D arched magnetic flux tubes and polar jets.
+   - **Keplerian Shear & Radial Shell Spring**: Apply differential orbital velocity `ω(r) ∝ r^(-0.45) · (m × r̂)` balanced by a pinch-compressible harmonic restoring force.
+   - **Desktop Inertia & Interactive Wells**: Inject `uWindowInertia`, mode-specific force fields (Gravity, FaceMesh Wind Cone, Hand Pinch/Vortex/Spread), and Gaussian-envelope spherical shockwave impulses.
+3. **Symplectic Semi-Implicit Euler & Rendering**: Integrate velocity first (`v_{t+Δt} = damp(v_t + a_t·Δt)`), then position (`x_{t+Δt} = x_t + v_{t+Δt}·Δt`), rendering via `THREE.Sprite` + `THREE.PointsNodeMaterial` with speed-coupled scaling and chromatic velocity ramps.
 
 ---
 
-## 3. Raymarched Liquid-Glass SDF Singularity Core
-- Render the central singularity inside a bounding proxy sphere (`SphereGeometry`) using a custom TSL `MeshBasicNodeMaterial`.
-- Raymarch an analytical SDF combining:
-  - A breathing central core perturbed by 3D domain-warped gyroid ripples and shockwave surface waves.
-  - Three orbiting satellite droplets merged seamlessly via polynomial smooth-union (`smin`).
-- Compute 4-tap tetrahedral SDF normals (`∇SDF`), Schlick Fresnel rim glow, studio softbox reflections, and staggered RGB `refract()` dispersion (`ior ± dispersion`) sampling internal caustic filaments.
+## 3. Volumetric CSG SDF Singularity & Beer-Lambert Optics (`Raymarch GLSL TOP`)
+Render the central singularity inside a bounding proxy sphere (`SphereGeometry(2.75)`) using a custom TSL `MeshBasicNodeMaterial`:
+- **Dynamic CSG SDF (`mapSDF`)**: Smooth-union (`smin`) a breathing gyroid-warped core sphere, a precessing undulating equatorial accretion torus (`sdTorus`), and three non-coplanar orbiting satellite droplets.
+- **Tetrahedral Normals & Optical Transport**: Compute 4-tap tetrahedral SDF gradients (`∇SDF`), Schlick Fresnel rim glow (`(1 - N·V)^3.8`), staggered RGB Cauchy `refract()` dispersion sampling internal caustic veins, and **Beer-Lambert volumetric absorption** `T = exp(-σ_a · τ)` probed along the internal refracted chord.
 
 ---
 
-## 4. Second-Order Spring Kinematics & Camera Rig
-- Smooth multi-window centroid shifts (`offsetSpring`), camera mouse/head parallax (`parallaxSpring`), FOV breathing (`fovSpring`), and hand-pinch core compression (`pinchSpring`) with sub-stepped second-order springs (`dt` clamped to `0.05s`).
-- Apply decaying quadratic trauma (`trauma * trauma`) on click shockwaves and two-hand field bursts.
+## 4. 3D Volumetric Stage & Spherical Orbital Camera Rig (`SOP Geo + Camera COMP`)
+- **Multi-Strata Depth Architecture**: Combine a `2,400`-point deep 3D parallax starfield (`r ∈ [16, 46]`), a slowly rotating geodesic icosahedral containment lattice (`EdgesGeometry(IcosahedronGeometry(3.35, 1))`), a calibrated equatorial horizon ring (`r = 4.1`), 3-axis counter-rotating astrolabe rings, and an additive `BackSide` Fresnel volumetric corona shell (`r = 2.15`).
+- **Orbital Spring Camera Rig**: Parameterize camera pose in spherical coordinates `(orbitRadius, orbitYaw, orbitPitch)` driven by second-order springs—supporting pointer drag-to-orbit (`> 5px`), short-click shockwaves (`≤ 5px`), scroll-wheel dolly zoom (`4.6..16.5`), and double-click / `R` camera reset.
 
 ---
 
-## 5. Cinematic Post-Processing Stack (`RenderPipeline`)
-1. `scenePass = pass(scene, camera)` extracting `output` color and `viewZ` depth nodes.
-2. Selective HDR `bloom(sceneColor)` with tunable strength and luminance threshold.
-3. Bokeh `dof()` dynamically locked to camera-to-singularity focus distance.
-4. Horizontal anamorphic streak flare via directional `gaussianBlur(convertToTexture(bloomPass), vec2(7.0, 0.12))`.
-5. Radial `chromaticAberration` + subtle edge vignette grading.
+## 5. Second-Order CHOP Kinematics & Cinematic RenderPipeline (`TOP Compositor`)
+- Smooth multi-window centroid offsets, camera orbit/parallax, FOV breathing, pinch compression, and quadratic trauma (`trauma²`) via sub-stepped second-order springs.
+- Chain `THREE.RenderPipeline` (`pass` -> HDR `bloom` -> dynamic `dof` -> directional horizontal `gaussianBlur` anamorphic streak -> radial `chromaticAberration` -> cinema vignette), gated behind `!isSoftwareGl`.
 
 ---
 
-## 6. Multi-Window BroadcastChannel Spatial Sync
-- Broadcast screen bounds (`x`, `y`, `w`, `h`, `mode`, `gesture`, `updatedAt`) at ~22–30Hz over `BroadcastChannel`.
-- Prune stale peers (`> 2400ms`), compute global `WorldBounds`, and project `localSingularityOffset = (bounds.center - self.center) * worldScalePerPixel`.
-- Connect peer window centers with animated additive silk filaments in Electric Violet (`#A78BFA`) and broadcast `SHOCKWAVE` impulses across all open windows.
-
----
-
-## 7. Unified Single-Stream MediaPipe Vision
-- Share a single `getUserMedia` stream sequentially across `FaceLandmarker` (`WIND` mode) and `HandLandmarker` (`HAND` mode) inside an adaptive `requestAnimationFrame` scheduler (~24Hz inference).
-- Map nose tip + mouth aperture/width pucker ratio to spatial blow force, and map 21-point hand landmarks to `PINCH`, `PALM`, and two-hand `SPREAD` sculpting gestures, always degrading gracefully to Mouse Gravity if camera access is unavailable.
+## 6. Multi-Window Sync & Unified Single-Stream MediaPipe Vision
+- Synchronize arbitrary desktop browser windows via `BroadcastChannel` (`WorldBounds`, `localSingularityOffset`, Electric Violet inter-window silk filaments, and cross-window `SHOCKWAVE` impulses).
+- Share a single `getUserMedia` stream sequentially across `FaceLandmarker` (`WIND`) and `HandLandmarker` (`HAND`), degrading cleanly to Mouse Gravity + 3D Orbit whenever camera access is unavailable.

@@ -83,6 +83,9 @@ export function TopReadout({ telemetry, mode, vision, hudHidden }: TopReadoutPro
             </>
           )}
         </div>
+        <div className="text-[11px] font-mono tabular-nums text-slate-500">
+          Drag to Orbit · Scroll to Zoom · Click to Pulse · R to Reset
+        </div>
       </div>
     </header>
   );

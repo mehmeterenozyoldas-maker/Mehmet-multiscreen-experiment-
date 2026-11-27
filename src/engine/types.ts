@@ -87,6 +87,7 @@ export interface VfxTuning {
 export interface MetapromptModules {
   gpgpuAdvection: boolean;
   sdfRaymarching: boolean;
+  volumetricStage: boolean;
   springRig: boolean;
   postProcessing: boolean;
   multiWindowSync: boolean;
@@ -110,4 +111,5 @@ export interface EngineTelemetry {
   nodeCount: number;
   fps: number;
   isSoftwareGl: boolean;
+  cameraDistance?: number;
 }

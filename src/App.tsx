@@ -76,6 +76,14 @@ export default function App() {
 
   const lastMinimapUpdateRef = useRef(0);
   const pointerRef = useRef({ x: 0, y: 0 });
+  const dragStateRef = useRef({
+    down: false,
+    moved: false,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+  });
 
   useEffect(() => {
     const mount = canvasMountRef.current;
@@ -141,7 +149,7 @@ export default function App() {
     };
   }, []);
 
-  // Keyboard shortcut: H toggles Cinema / Zen mode
+  // Keyboard shortcuts: H toggles Cinema / Zen mode, R resets 3D orbit camera
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (metapromptOpen) return;
@@ -149,6 +157,8 @@ export default function App() {
       if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return;
       if (e.key === 'h' || e.key === 'H') {
         setHudHidden((prev) => !prev);
+      } else if (e.key === 'r' || e.key === 'R') {
+        engineRef.current?.resetCamera();
       }
     };
     window.addEventListener('keydown', onKeyDown);
@@ -183,19 +193,66 @@ export default function App() {
     setMetapromptModules((prev) => ({ ...prev, [key]: !prev[key] }));
   }, []);
 
-  const handleStagePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const nx = (e.clientX / Math.max(1, window.innerWidth)) * 2 - 1;
-    const ny = -(e.clientY / Math.max(1, window.innerHeight)) * 2 + 1;
-    pointerRef.current = { x: nx, y: ny };
-    engineRef.current?.setPointer(nx, ny);
-    syncRef.current?.setLocalInteraction(modeRef.current, vision.handGesture, nx, ny);
-  }, [vision.handGesture]);
+  const handleStagePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const nx = (e.clientX / Math.max(1, window.innerWidth)) * 2 - 1;
+      const ny = -(e.clientY / Math.max(1, window.innerHeight)) * 2 + 1;
+      pointerRef.current = { x: nx, y: ny };
+      engineRef.current?.setPointer(nx, ny);
+      syncRef.current?.setLocalInteraction(modeRef.current, vision.handGesture, nx, ny);
+
+      const drag = dragStateRef.current;
+      if (drag.down) {
+        const dx = e.clientX - drag.lastX;
+        const dy = e.clientY - drag.lastY;
+        drag.lastX = e.clientX;
+        drag.lastY = e.clientY;
+        const distSq =
+          (e.clientX - drag.startX) * (e.clientX - drag.startX) +
+          (e.clientY - drag.startY) * (e.clientY - drag.startY);
+        if (distSq > 36) {
+          drag.moved = true;
+        }
+        if (drag.moved) {
+          engineRef.current?.orbitBy(-dx * 0.0065, dy * 0.0055);
+        }
+      }
+    },
+    [vision.handGesture]
+  );
 
   const handleStagePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
-    const nx = (e.clientX / Math.max(1, window.innerWidth)) * 2 - 1;
-    const ny = -(e.clientY / Math.max(1, window.innerHeight)) * 2 + 1;
-    engineRef.current?.triggerShockwave(nx, ny, 1.0);
-    syncRef.current?.broadcastShockwave(nx, ny, 1.0);
+    dragStateRef.current = {
+      down: true,
+      moved: false,
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      lastY: e.clientY,
+    };
+  }, []);
+
+  const handleStagePointerUp = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragStateRef.current;
+    if (!drag.down) return;
+    const wasMoved = drag.moved;
+    drag.down = false;
+    drag.moved = false;
+
+    if (!wasMoved) {
+      const nx = (e.clientX / Math.max(1, window.innerWidth)) * 2 - 1;
+      const ny = -(e.clientY / Math.max(1, window.innerHeight)) * 2 + 1;
+      engineRef.current?.triggerShockwave(nx, ny, 1.0);
+      syncRef.current?.broadcastShockwave(nx, ny, 1.0);
+    }
+  }, []);
+
+  const handleStageWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    engineRef.current?.dollyBy(e.deltaY * 0.0045);
+  }, []);
+
+  const handleStageDoubleClick = useCallback(() => {
+    engineRef.current?.resetCamera();
   }, []);
 
   return (
@@ -210,7 +267,11 @@ export default function App() {
         ref={canvasMountRef}
         onPointerMove={handleStagePointerMove}
         onPointerDown={handleStagePointerDown}
-        className="absolute inset-0 h-full w-full cursor-crosshair"
+        onPointerUp={handleStagePointerUp}
+        onPointerCancel={handleStagePointerUp}
+        onWheel={handleStageWheel}
+        onDoubleClick={handleStageDoubleClick}
+        className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
         aria-label="Interactive 3D Neural Singularity Stage"
       />
 
